@@ -14,14 +14,14 @@ public enum REGIONPLUGINS {
     KINGDOMSX("KingdomsX", "Kingdoms", new RTP_KingdomsX()),
     LANDS("Lands", new RTP_Lands()),
     PUEBLOS("Pueblos", new RTP_Pueblos()),
-    REDPROTECT("RedProtect", new RTP_RedProtect()),
-    RESIDENCE("Residence", new RTP_Residence()),
+//    REDPROTECT("RedProtect", new RTP_RedProtect()),
+//    RESIDENCE("Residence", new RTP_Residence()),
     SABERFACTIONS("SaberFactions", "Factions", new RTP_SaberFactions()),
     TOWNY("Towny", new RTP_Towny()),
     ULTIMATECLAIMS("UltimateClaims", new RTP_UltimateClaims()),
     WORLDGUARD("WorldGuard", new RTP_WorldGuard()),
     MINEPLOTS("MinePlots", new RTP_MinePlots()),
-    FACTIONSBRIDGE("FactionsBridge", new RTP_FactionsBridge()),
+//    FACTIONSBRIDGE("FactionsBridge", new RTP_FactionsBridge()),
     CRASH_CLAIM("CrashClaim", new RTP_CrashClaim());
 
     private final SoftDepends.RegionPlugin plugin = new SoftDepends.RegionPlugin();

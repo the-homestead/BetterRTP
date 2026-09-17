@@ -11,7 +11,6 @@ import org.jetbrains.annotations.Nullable;
 
 import com.tcoded.folialib.wrapper.task.WrappedTask;
 
-import io.papermc.lib.PaperLib;
 import me.SuperRonanCraft.BetterRTP.BetterRTP;
 import me.SuperRonanCraft.BetterRTP.player.commands.RTP_SETUP_TYPE;
 import me.SuperRonanCraft.BetterRTP.player.rtp.RTP;
@@ -156,10 +155,9 @@ public class QueueGenerator {
     private void addQueue(RTPWorld rtpWorld, String id, ReQueueData reQueueData) {
         Location loc = RandomLocation.generateLocation(rtpWorld);
         if (loc != null) {
-            AsyncHandler.sync(() -> {
-                //BetterRTP.debug("Queued up a new position, attempts " + reQueueData.attempts);
-                PaperLib.getChunkAtAsync(loc)
-                        .thenAccept(v -> {
+            AsyncHandler.getChunkAtAsync(loc)
+                    .thenAccept(v -> {
+                        AsyncHandler.syncAtLocation(loc, () -> {
                             Location safeLoc = RandomLocation.getSafeLocation(
                                     HelperRTP.getWorldType(rtpWorld.getWorld()),
                                     loc.getWorld(),
@@ -187,7 +185,10 @@ public class QueueGenerator {
                             } else
                                 queueGenerator(reQueueData);
                         });
-            });
+                    }).exceptionally(e -> {
+                        queueGenerator(reQueueData);
+                        return null;
+                    });
         } else {
             BetterRTP.debug("Queue position wasn't able to generate a location!");
             queueGenerator(reQueueData);

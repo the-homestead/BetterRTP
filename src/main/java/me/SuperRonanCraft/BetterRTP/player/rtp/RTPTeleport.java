@@ -7,7 +7,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import io.papermc.lib.PaperLib;
 import me.SuperRonanCraft.BetterRTP.BetterRTP;
 import me.SuperRonanCraft.BetterRTP.player.rtp.effects.RTPEffect_Titles;
 import me.SuperRonanCraft.BetterRTP.player.rtp.effects.RTPEffects;
@@ -17,6 +16,7 @@ import me.SuperRonanCraft.BetterRTP.references.customEvents.RTP_TeleportPostEven
 import me.SuperRonanCraft.BetterRTP.references.customEvents.RTP_TeleportPreEvent;
 import me.SuperRonanCraft.BetterRTP.references.messages.MessagesCore;
 import me.SuperRonanCraft.BetterRTP.references.rtpinfo.worlds.WorldPlayer;
+import me.SuperRonanCraft.BetterRTP.versions.AsyncHandler;
 
 //---
 //Credit to @PaperMC for PaperLib - https://github.com/PaperMC/PaperLib
@@ -52,9 +52,8 @@ public class RTPTeleport {
             RTP_TeleportEvent event = new RTP_TeleportEvent(p, location, wPlayer.getWorldtype());
             getPl().getServer().getPluginManager().callEvent(event);
             Location loc = event.getLocation();
-            PaperLib.teleportAsync(p, loc).thenRun(new BukkitRunnable() { //Async teleport
-                @Override
-                public void run() {
+            AsyncHandler.teleport(p, loc).thenRun(() -> { //Async teleport
+                AsyncHandler.syncAtEntity(p, () -> {
                     afterTeleport(p, loc, wPlayer, attempts, oldLoc, type);
                     if (sendi != p) //Tell player who requested that the player rtp'd
                         sendSuccessMsg(sendi, p.getName(), loc, wPlayer, false, attempts);
@@ -63,7 +62,7 @@ public class RTPTeleport {
                     if (type == RTP_TYPE.JOIN) //RTP Type was Join
                         if (BetterRTP.getInstance().getSettings().isRtpOnFirstJoin_SetAsRespawn()) //Save as respawn is enabled
                             p.setBedSpawnLocation(loc, true); //True means to force a respawn even without a valid bed
-                }
+                });
             });
         } catch (Exception e) {
             getPl().getPInfo().getRtping().remove(p); //No longer rtp'ing (errored)

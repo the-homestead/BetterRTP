@@ -1,14 +1,10 @@
 package me.SuperRonanCraft.BetterRTP.player.rtp;
 
-import java.util.concurrent.CompletableFuture;
-
 import org.bukkit.Bukkit;
-import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
-import io.papermc.lib.PaperLib;
 import lombok.Getter;
 import me.SuperRonanCraft.BetterRTP.BetterRTP;
 import me.SuperRonanCraft.BetterRTP.references.customEvents.RTP_FailedEvent;
@@ -63,19 +59,15 @@ public class RTPPlayer {
                 }
                 attempts++; //Add an attempt
                 //Load chunk and find out if safe location (asynchronously)
-                AsyncHandler.sync(() -> {
-                    try { //Prior to 1.12 this async chunk will NOT work
-                        CompletableFuture<Chunk> chunk = PaperLib.getChunkAtAsync(loc);
-                        chunk.thenAccept(result -> {
-                            //BetterRTP.debug("Checking location for " + p.getName());
-                            attempt(sendi, loc);
-                        });
-                    } catch (IllegalStateException e) {
-                        //Legacy non-async support
+                AsyncHandler.getChunkAtAsync(loc).thenAccept(result -> {
+                    AsyncHandler.syncAtLocation(loc, () -> {
                         attempt(sendi, loc);
-                    } catch (Throwable ignored) {
-
-                    }
+                    });
+                }).exceptionally(e -> {
+                    AsyncHandler.syncAtLocation(loc, () -> {
+                        attempt(sendi, loc);
+                    });
+                    return null;
                 });
             });
         }
