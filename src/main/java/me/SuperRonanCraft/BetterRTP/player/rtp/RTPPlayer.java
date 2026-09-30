@@ -1,6 +1,8 @@
 package me.SuperRonanCraft.BetterRTP.player.rtp;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
+import org.bukkit.ChunkSnapshot;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -57,25 +59,50 @@ public class RTPPlayer {
                     else
                         loc = RandomLocation.generateLocation(worldPlayer);
                 }
+                if (loc == null || loc.getWorld() == null) { //Bad config or a null world, don't spin forever
+                    fail(sendi);
+                    return;
+                }
                 attempts++; //Add an attempt
                 //Load chunk and find out if safe location (asynchronously)
-                AsyncHandler.getChunkAtAsync(loc).thenAccept(result -> {
-                    AsyncHandler.syncAtLocation(loc, () -> {
-                        attempt(sendi, loc);
-                    });
+                AsyncHandler.getChunkAtAsync(loc).thenAccept(chunk -> {
+                    //Snapshot the chunk and resolve the safe spot off the main thread. A snapshot is an
+                    //immutable copy, so no live block reads happen on the server thread.
+                    ChunkSnapshot snapshot = snapshot(chunk);
+                    Location safeLoc = RandomLocation.getSafeLocation(worldPlayer.getWorldtype(),
+                            worldPlayer.getWorld(), loc, worldPlayer.getMinY(), worldPlayer.getMaxY(),
+                            worldPlayer.getBiomes(), snapshot);
+                    //Region checks and economy are not thread safe: hop back to the owning thread
+                    AsyncHandler.syncAtLocation(loc, () -> attempt(sendi, loc, safeLoc));
                 }).exceptionally(e -> {
-                    AsyncHandler.syncAtLocation(loc, () -> {
-                        attempt(sendi, loc);
-                    });
+                    //Chunk failed to load, so there's no snapshot. Retry on the owning thread.
+                    AsyncHandler.syncAtLocation(loc, () -> attempt(sendi, loc, null));
                     return null;
                 });
             });
         }
     }
 
+    private static ChunkSnapshot snapshot(Chunk chunk) {
+        try {
+            //includeMaxblocky MUST be true: getHighestBlockYAt() returns 0 without it, which would
+            //make every Overworld candidate fail. includeBiome true for the biome blacklist.
+            return chunk.getChunkSnapshot(true, true, false);
+        } catch (Throwable e) {
+            return null; //Fall back to the live-block path
+        }
+    }
+
     private void attempt(CommandSender sendi, Location loc) {
-        Location tpLoc;
-        tpLoc = RandomLocation.getSafeLocation(worldPlayer.getWorldtype(), worldPlayer.getWorld(), loc, worldPlayer.getMinY(), worldPlayer.getMaxY(), worldPlayer.getBiomes());
+        attempt(sendi, loc, null);
+    }
+
+    private void attempt(CommandSender sendi, Location loc, Location preResolvedSafeLoc) {
+        Location tpLoc = preResolvedSafeLoc;
+        if (tpLoc == null) { //No snapshot available, resolve it live (owning thread)
+            tpLoc = RandomLocation.getSafeLocation(worldPlayer.getWorldtype(),
+                    worldPlayer.getWorld(), loc, worldPlayer.getMinY(), worldPlayer.getMaxY(), worldPlayer.getBiomes());
+        }
         //attemptedLocations.add(loc);
         //Valid location?
         if (tpLoc != null && checkDepends(tpLoc)) {
@@ -86,15 +113,16 @@ public class RTPPlayer {
                     getPl().getCooldowns().add(player, worldPlayer.getWorld());
                 tpLoc.setYaw(player.getLocation().getYaw());
                 tpLoc.setPitch(player.getLocation().getPitch());
-                AsyncHandler.sync(() -> settings.teleport.sendPlayer(sendi, player, tpLoc, worldPlayer, attempts, type));
+                settings.teleport.sendPlayer(sendi, player, tpLoc, worldPlayer, attempts, type);
             } else {
                 if (worldPlayer.getPlayerInfo().applyCooldown)
                     getPl().getCooldowns().removeCooldown(player, worldPlayer.getWorld());
-                getPl().getPInfo().getRtping().remove(player);
+                getPl().getPInfo().getRtping().remove(player.getUniqueId());
             }
         } else {
             randomlyTeleport(sendi);
-            QueueHandler.remove(loc);
+            if (loc != null)
+                QueueHandler.remove(loc);
         }
     }
 
@@ -102,9 +130,17 @@ public class RTPPlayer {
     private void metMax(CommandSender sendi, Player p) {
         settings.teleport.failedTeleport(p, sendi);
         getPl().getCooldowns().removeCooldown(p, worldPlayer.getWorld());
-        getPl().getPInfo().getRtping().remove(p);
+        getPl().getPInfo().getRtping().remove(p.getUniqueId());
         //RTP Failed Event
         Bukkit.getServer().getPluginManager().callEvent(new RTP_FailedEvent(this));
+    }
+
+    /**
+     * Bailed out before a location ever existed (unusable config, unloaded world). Runs off the main
+     * thread, so hop back before touching the player, cooldown cache or events.
+     */
+    private void fail(CommandSender sendi) {
+        AsyncHandler.syncAtEntity(player, () -> metMax(sendi, player));
     }
 
     /**

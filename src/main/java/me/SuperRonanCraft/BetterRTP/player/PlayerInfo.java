@@ -1,6 +1,8 @@
 package me.SuperRonanCraft.BetterRTP.player;
 
-import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -11,38 +13,32 @@ import me.SuperRonanCraft.BetterRTP.references.invs.RTP_INV_SETTINGS;
 
 public class PlayerInfo {
 
-    private final HashMap<Player, Inventory> invs = new HashMap<>();
-    //private final HashMap<Player, RTP_INV_SETTINGS> invType = new HashMap<>();
-    @Getter private final HashMap<Player, World> invWorld = new HashMap<>();
-    @Getter private final HashMap<Player, RTP_INV_SETTINGS> invNextInv = new HashMap<>();
-    //private final HashMap<Player, CooldownData> cooldown = new HashMap<>();
-    @Getter private final HashMap<Player, Boolean> rtping = new HashMap<>();
-    //private final HashMap<Player, List<Location>> previousLocations = new HashMap<>();
-    //private final HashMap<Player, RTP_TYPE> rtpType = new HashMap<>();
-
-    /*private void setInv(Player p, Inventory inv) {
-        invs.put(p, inv);
-    }*/
-
-    /*private void setInvType(Player p, RTP_INV_SETTINGS type) {
-        invType.put(p, type);
-    }*/
+    // All of these are read/written from async chunk and region threads (RTPPlayer.attempt,
+    // RTPTeleport's post-teleport callback), so they must be concurrent. Keyed by UUID rather than
+    // Player so a quit/rejoin never orphans an entry holding a dead Player reference.
+    private final Map<UUID, Inventory> invs = new ConcurrentHashMap<>();
+    @Getter private final Map<UUID, World> invWorld = new ConcurrentHashMap<>();
+    @Getter private final Map<UUID, RTP_INV_SETTINGS> invNextInv = new ConcurrentHashMap<>();
+    //private final Map<UUID, CooldownData> cooldown = new ConcurrentHashMap<>();
+    @Getter private final Map<UUID, Boolean> rtping = new ConcurrentHashMap<>();
+    //private final Map<UUID, List<Location>> previousLocations = new ConcurrentHashMap<>();
+    //private final Map<UUID, RTP_TYPE> rtpType = new ConcurrentHashMap<>();
 
     public void setInvWorld(Player p, World type) {
-        invWorld.put(p, type);
+        invWorld.put(p.getUniqueId(), type);
     }
 
     public void setNextInv(Player p, RTP_INV_SETTINGS type) {
-        invNextInv.put(p, type);
+        invNextInv.put(p.getUniqueId(), type);
     }
 
     //--Logic--
 
     public Boolean playerExists(Player p) {
-        return invs.containsKey(p);
+        return invs.containsKey(p.getUniqueId());
     }
 
-    private void unloadAll() {
+    public void unloadAll() {
         invs.clear();
         //invType.clear();
         invWorld.clear();
@@ -52,17 +48,17 @@ public class PlayerInfo {
         //previousLocations.clear();
     }
 
-    private void unload(Player p) {
+    /** Drops every cached reference for a player. Safe to call more than once. */
+    public void unload(Player p) {
         clearInvs(p);
-        //cooldown.remove(p);
-        rtping.remove(p);
-        //previousLocations.remove(p);
+        rtping.remove(p.getUniqueId());
     }
 
     public void clearInvs(Player p) {
-        invs.remove(p);
+        UUID id = p.getUniqueId();
+        invs.remove(id);
         //invType.remove(p);
-        invWorld.remove(p);
-        invNextInv.remove(p);
+        invWorld.remove(id);
+        invNextInv.remove(id);
     }
 }

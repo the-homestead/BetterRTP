@@ -28,30 +28,64 @@ public abstract class SQLite {
     public abstract List<String> getTables();
 
     // SQL creation stuff
+
+    /**
+     * Shared connection, reused for every query. Opening a SQLite connection per statement was the
+     * single biggest DB cost at scale (one file open + schema parse per /rtp, per cooldown read).
+     * Guarded by {@link #LOCK} because several callers read from async scheduler threads while
+     * {@link SQLiteExecutor} writes.
+     */
+    private static final Object LOCK = new Object();
+    private static volatile Connection sharedConnection;
+
     public Connection getSQLConnection() {
         return getLocal();
     }
 
     private Connection getLocal() {
-        File dataFolder = new File(BetterRTP.getInstance().getDataFolder().getPath() + File.separator + "data", db_file_name + ".db");
-        if (!dataFolder.exists()){
+        Connection existing = sharedConnection;
+        if (existing != null)
+            return existing;
+        synchronized (LOCK) {
+            if (sharedConnection != null) //Another thread won the race
+                return sharedConnection;
+            File dataFolder = new File(BetterRTP.getInstance().getDataFolder().getPath() + File.separator + "data", db_file_name + ".db");
+            if (!dataFolder.exists()){
+                try {
+                    dataFolder.getParentFile().mkdirs();
+                    dataFolder.createNewFile();
+                } catch (IOException e) {
+                    BetterRTP.getInstance().getLogger().log(Level.SEVERE, "File write error: " + dataFolder.getPath());
+                    e.printStackTrace();
+                }
+            }
             try {
-                dataFolder.getParentFile().mkdir();
-                dataFolder.createNewFile();
-            } catch (IOException e) {
-                BetterRTP.getInstance().getLogger().log(Level.SEVERE, "File write error: " + dataFolder.getPath());
-                e.printStackTrace();
+                Class.forName("org.sqlite.JDBC");
+                sharedConnection = DriverManager.getConnection("jdbc:sqlite:" + dataFolder);
+                return sharedConnection;
+            } catch (SQLException ex) {
+                BetterRTP.getInstance().getLogger().log(Level.SEVERE, "SQLite exception on initialize", ex);
+            } catch (ClassNotFoundException ex) {
+                BetterRTP.getInstance().getLogger().log(Level.SEVERE, "You need the SQLite JBDC library. Google it Ronan...");
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Drops the shared connection. Call on disable/reload so a stale handle is never reused after the
+     * file has been replaced underneath us.
+     */
+    public static void closeShared() {
+        synchronized (LOCK) {
+            if (sharedConnection != null) {
+                try {
+                    sharedConnection.close();
+                } catch (SQLException ignored) {
+                }
+                sharedConnection = null;
             }
         }
-        try {
-            Class.forName("org.sqlite.JDBC");
-            return DriverManager.getConnection("jdbc:sqlite:" + dataFolder);
-        } catch (SQLException ex) {
-            BetterRTP.getInstance().getLogger().log(Level.SEVERE, "SQLite exception on initialize", ex);
-        } catch (ClassNotFoundException ex) {
-            BetterRTP.getInstance().getLogger().log(Level.SEVERE, "You need the SQLite JBDC library. Google it Ronan...");
-        }
-        return null;
     }
 
     public void load() {
@@ -66,6 +100,10 @@ public abstract class SQLite {
 
         AsyncHandler.async(() -> {
             Connection connection = getSQLConnection();
+            if (connection == null) {
+                loaded = true;
+                return;
+            }
             try {
                 Statement s = connection.createStatement();
                 for (String table : tables) {
@@ -86,14 +124,6 @@ public abstract class SQLite {
                 s.close();
             } catch (SQLException e) {
                 e.printStackTrace();
-            } finally {
-                if (connection != null) {
-                    try {
-                        connection.close();
-                    } catch (SQLException e) {
-                        e.printStackTrace();
-                    }
-                }
             }
             initialize();
             loaded = true;
@@ -221,11 +251,15 @@ public abstract class SQLite {
         }
     }
 
+    /**
+     * Closes a statement/result set. The connection is intentionally NOT closed: it is shared and
+     * pooled in {@link #sharedConnection}, so closing it here would drop every other in-flight query.
+     * Use {@link #closeShared()} to tear it down.
+     */
     protected void close(PreparedStatement ps, ResultSet rs, Connection conn) {
         try {
-            if (ps != null) ps.close();
-            if (conn != null) conn.close();
             if (rs != null) rs.close();
+            if (ps != null) ps.close();
         } catch (SQLException ex) {
             Error.close(BetterRTP.getInstance(), ex);
         }

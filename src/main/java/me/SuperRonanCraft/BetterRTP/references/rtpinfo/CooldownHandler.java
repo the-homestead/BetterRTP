@@ -26,6 +26,7 @@ public class CooldownHandler {
     @Getter boolean enabled, loaded, cooldownByWorld;
     @Getter private int defaultCooldownTime; //Global Cooldown timer
     private int lockedAfter; //Rtp's before being locked
+    private int downloadRetries; //Bounded retry guard for queueDownload()
     private final List<Player> downloading = new CopyOnWriteArrayList<>();
 
     public void load() {
@@ -33,6 +34,7 @@ public class CooldownHandler {
         enabled = config.getBoolean("Settings.Cooldown.Enabled");
         downloading.clear();
         loaded = false;
+        downloadRetries = 0;
         if (enabled) {
             defaultCooldownTime = config.getInt("Settings.Cooldown.Time");
             BetterRTP.debug("Cooldown = " + defaultCooldownTime);
@@ -43,14 +45,18 @@ public class CooldownHandler {
     }
 
     private void queueDownload() {
+        // Bounded retry: the old version re-armed itself forever, so a database that never finished
+        // loading turned into an infinite async task loop.
+        if (downloadRetries++ > 200) {
+            BetterRTP.getInstance().getLogger().warning(
+                    "Cooldown data took too long to download, cooldowns may be inaccurate until the next reload.");
+            return;
+        }
         AsyncHandler.asyncLater(() -> {
-            if (cooldownByWorld && !DatabaseHandler.getCooldowns().isLoaded()) {
-               queueDownload();
-               return;
-            }
-            if (!DatabaseHandler.getPlayers().isLoaded()) {
-               queueDownload();
-               return;
+            if ((cooldownByWorld && !DatabaseHandler.getCooldowns().isLoaded())
+                    || !DatabaseHandler.getPlayers().isLoaded()) {
+                queueDownload();
+                return;
             }
             //Load any online players cooldowns (mostly after a reload)
             for (Player p : Bukkit.getOnlinePlayers())
@@ -63,6 +69,7 @@ public class CooldownHandler {
         if (!enabled) return;
         PlayerData playerData = getData(player);
         if (cooldownByWorld) {
+            if (world == null) return;
             Map<World, CooldownData> cooldowns = playerData.getCooldowns();
             CooldownData data = cooldowns.getOrDefault(world, new CooldownData(player.getUniqueId(), 0L));
             playerData.setRtpCount(playerData.getRtpCount() + 1);
@@ -153,12 +160,8 @@ public class CooldownHandler {
 
         try {
             if (getDatabaseWorlds() != null) { //Per World enabled?
-                for (World world : Bukkit.getWorlds()) {
-                    //Cooldowns
-                    CooldownData cooldown = getDatabaseWorlds().getCooldown(player.getUniqueId(), world);
-                    if (cooldown != null)
-                        playerData.getCooldowns().put(world, cooldown);
-                }
+                //One batched pass on the DB thread instead of a blocking query per world
+                getDatabaseWorlds().loadCooldowns(player.getUniqueId(), playerData.getCooldowns());
             }
             //Player Data
             DatabaseHandler.getPlayers().setupData(playerData);

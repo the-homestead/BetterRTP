@@ -1,6 +1,6 @@
 
-To-Do list for BetterRTP
-
+To-Do list for BetterRTP:
+- Look into why RTP hangs main server thread
 
 Worlds with spaces:
 - Support for worlds with spaces in their names

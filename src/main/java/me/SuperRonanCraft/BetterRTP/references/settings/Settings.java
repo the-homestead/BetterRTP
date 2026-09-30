@@ -70,6 +70,8 @@ public class Settings {
         placeholder_timeSeparator_middle = FileOther.FILETYPE.PLACEHOLDERS.getString("Config.TimeFormat.Separator.Middle");
         placeholder_timeSeparator_last = FileOther.FILETYPE.PLACEHOLDERS.getString("Config.TimeFormat.Separator.Last");
         depends.load();
+        //SoftDepends just resolved which region plugins are live; snapshot that for the hot check
+        me.SuperRonanCraft.BetterRTP.player.rtp.RTPPluginValidation.rebuild();
     }
 
     public SoftDepends getsDepends() {

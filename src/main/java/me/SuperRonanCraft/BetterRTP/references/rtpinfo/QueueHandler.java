@@ -12,11 +12,16 @@ import org.bukkit.event.Listener;
 import org.bukkit.plugin.PluginManager;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Random;
 
 public class QueueHandler implements Listener { //Randomly queues up some safe locations
+
+    //Shared, threadsafe RNG. ThreadLocalRandom would be faster still, but a single instance keeps
+    //the pick deterministic-per-call-site for anyone debugging queue behaviour.
+    private static final Random RANDOM = new Random();
 
     boolean loaded = false;
     private final QueueGenerator generator = new QueueGenerator();
@@ -50,9 +55,9 @@ public class QueueHandler implements Listener { //Randomly queues up some safe l
         if (queueData.size() <= QueueGenerator.queueMin && !BetterRTP.getInstance().getQueue().generator.generating)
             BetterRTP.getInstance().getQueue().generator.generate(rtpWorld);
         if (!queueData.isEmpty()) {
-            QueueData randomQueue = queueData.get(new Random().nextInt(queueData.size()));
-            queueData.clear();
-            return randomQueue;
+            //Shuffle rather than ORDER BY RANDOM() in SQL: same distribution, no full-table sort
+            Collections.shuffle(queueData, RANDOM);
+            return queueData.get(0);
         }
         return null;
     }

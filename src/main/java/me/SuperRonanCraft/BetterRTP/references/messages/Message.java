@@ -123,9 +123,13 @@ public interface Message {
 
     //Thank you to zwrumpy on Spigot! (https://www.spigotmc.org/threads/hex-color-code-translate.449748/#post-4270781)
     //Supports 1.8 to 1.18
+    //Compiled once: this runs for every message, and recompiling the pattern per send was pure garbage
+    Pattern HEX_PATTERN = Pattern.compile("#[a-fA-F0-9]{6}");
+
     static String translateHexColorCodes(String message) {
-        Pattern pattern = Pattern.compile("#[a-fA-F0-9]{6}");
-        Matcher matcher = pattern.matcher(message);
+        if (message.indexOf('#') < 0) //Fast path: nothing that can be a hex code
+            return ChatColor.translateAlternateColorCodes('&', message);
+        Matcher matcher = HEX_PATTERN.matcher(message);
         while (matcher.find()) {
             String hexCode = message.substring(matcher.start(), matcher.end());
             String replaceSharp = hexCode.replace('#', 'x');
@@ -137,7 +141,7 @@ public interface Message {
             }
 
             message = message.replace(hexCode, builder.toString());
-            matcher = pattern.matcher(message);
+            matcher = HEX_PATTERN.matcher(message);
         }
         return ChatColor.translateAlternateColorCodes('&', message);
     }

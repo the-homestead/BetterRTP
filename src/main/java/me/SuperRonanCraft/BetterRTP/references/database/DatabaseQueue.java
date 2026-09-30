@@ -7,6 +7,7 @@ import me.SuperRonanCraft.BetterRTP.references.rtpinfo.QueueData;
 import me.SuperRonanCraft.BetterRTP.references.rtpinfo.QueueGenerator;
 import me.SuperRonanCraft.BetterRTP.references.rtpinfo.QueueHandler;
 import me.SuperRonanCraft.BetterRTP.references.rtpinfo.worlds.RTPWorld;
+import me.SuperRonanCraft.BetterRTP.versions.AsyncHandler;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -53,8 +54,21 @@ public class DatabaseQueue extends SQLite {
     }
 
     @Override public void load() {
-        if (QueueHandler.isEnabled())
-            super.load();
+        if (!QueueHandler.isEnabled())
+            return;
+        super.load();
+        //Composite index matching the only hot query (getInRange: world + x-range + z-range).
+        //Without it every /rtp was a full table scan as the queue grew.
+        AsyncHandler.async(() -> {
+            Connection conn = getSQLConnection();
+            if (conn == null) return;
+            try (Statement s = conn.createStatement()) {
+                s.executeUpdate("CREATE INDEX IF NOT EXISTS idx_queue_range ON " + getTables().get(0)
+                        + " (" + COLUMNS.WORLD.name + ", " + COLUMNS.X.name + ", " + COLUMNS.Z.name + ")");
+            } catch (SQLException ex) {
+                BetterRTP.getInstance().getLogger().log(Level.SEVERE, Errors.sqlConnectionExecute(), ex);
+            }
+        });
     }
 
     public List<QueueData> getInRange(QueueRangeData range) {
@@ -66,12 +80,21 @@ public class DatabaseQueue extends SQLite {
                 ResultSet rs = null;
                 try {
                     conn = getSQLConnection();
+                    if (conn == null) return;
                     ps = conn.prepareStatement("SELECT * FROM " + tables.get(0) + " WHERE "
-                            + COLUMNS.WORLD.name + " = '" + range.getWorld().getName() + "' AND "
-                            + COLUMNS.X.name + " BETWEEN " + range.getXLow() + " AND " + range.getXHigh()
-                            + " AND " + COLUMNS.Z.name + " BETWEEN " + range.getZLow() + " AND " + range.getZHigh()
-                            + " ORDER BY RANDOM() LIMIT " + (QueueGenerator.queueMax + 1)
+                            + COLUMNS.WORLD.name + " = ? AND "
+                            + COLUMNS.X.name + " BETWEEN ? AND ?"
+                            + " AND " + COLUMNS.Z.name + " BETWEEN ? AND ?"
+                            + " LIMIT " + (QueueGenerator.queueMax * 8)
                     );
+                    ps.setString(1, range.getWorld().getName());
+                    ps.setLong(2, range.getXLow());
+                    ps.setLong(3, range.getXHigh());
+                    ps.setLong(4, range.getZLow());
+                    ps.setLong(5, range.getZHigh());
+                    //No ORDER BY RANDOM(): that forced SQLite to materialise and sort the entire
+                    //table on every /rtp. A bounded scan plus an in-memory shuffle is equivalent
+                    //here and stays O(matching rows).
                     rs = ps.executeQuery();
                     while (rs.next()) {
                         long x = rs.getLong(COLUMNS.X.name);

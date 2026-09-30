@@ -14,6 +14,7 @@ import me.SuperRonanCraft.BetterRTP.references.file.FileOther;
 import me.SuperRonanCraft.BetterRTP.references.helpers.HelperRTP;
 import me.SuperRonanCraft.BetterRTP.references.helpers.HelperRTP_Check;
 import me.SuperRonanCraft.BetterRTP.references.rtpinfo.PermissionGroup;
+import me.SuperRonanCraft.BetterRTP.references.rtpinfo.RandomLocation;
 import me.SuperRonanCraft.BetterRTP.references.rtpinfo.worlds.RTPWorld;
 import me.SuperRonanCraft.BetterRTP.references.rtpinfo.worlds.WORLD_TYPE;
 import me.SuperRonanCraft.BetterRTP.references.rtpinfo.worlds.WorldDefault;
@@ -42,6 +43,7 @@ public class RTP {
         cancelOnMove = config.getBoolean("Settings.Delay.CancelOnMove");
         cancelOnDamage = config.getBoolean("Settings.Delay.CancelOnDamage");
         blockList = config.getStringList("BlacklistedBlocks");
+        RandomLocation.cacheBlockList(blockList);
         //Overrides
         RTPLoader.loadOverrides(overriden);
         //WorldType
@@ -82,7 +84,7 @@ public class RTP {
     private void rtp(CommandSender sendi, WorldPlayer pWorld, RTP_TYPE type) {
         //Cooldown
         Player p = pWorld.getPlayer();
-        getPl().getPInfo().getRtping().put(p, true); //Cache player so they cant run '/rtp' again while rtp'ing
+        getPl().getPInfo().getRtping().put(p.getUniqueId(), true); //Cache player so they cant run '/rtp' again while rtp'ing
         //Setup player rtp methods
         RTPPlayer rtpPlayer = new RTPPlayer(p, this, pWorld, type);
         // Delaying? Else, just go
